@@ -5,11 +5,11 @@ INCLUDE_DIRECTORIES (
 	)
 
 SET (${this_target}_SOURCE_FILES
-	message_port_internal.cpp
-	message_port.cpp
+	message_port_internal.c
+	message_port.c
 	)
 
-SET(requires "message-port dlog")
+SET(requires "message-port dlog glib-2.0")
 
 INCLUDE(FindPkgConfig)
 pkg_check_modules(${this_target} REQUIRED ${requires})
@@ -18,13 +18,10 @@ FOREACH(flag ${${this_target}_CFLAGS})
     SET(EXTRA_CFLAGS "${EXTRA_CFLAGS} ${flag}")
 ENDFOREACH(flag)
 
-SET(EXTRA_CFLAGS  "${EXTRA_CFLAGS} -fPIC -Wall -Werror -fvisibility=hidden -fvisibility-inlines-hidden")
+SET(EXTRA_CFLAGS  "${EXTRA_CFLAGS} -fPIC -Wall -Werror -fvisibility=hidden")
 
 ## SET C COMPILER FLAGS
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${EXTRA_CFLAGS}")
-
-## SET CPP COMPILER FLAGS
-SET(CMAKE_CXX_FLAGS "${OSP_DEBUG_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CFLAGS} ${OSP_COMPILER_FLAGS}")
 
 ## SET LINKER FLAGS
 SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined -Wl,--as-needed")

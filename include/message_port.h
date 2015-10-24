@@ -61,7 +61,8 @@ typedef enum
  *
  * @since_tizen @if MOBILE 2.3 @elseif WEARABLE 2.3.1 @endif
  *
- * @remarks			@a remote_port will be set only if the remote application sends a message with its port information using message_port_send_message_with_local_port(), otherwise it is @c NULL. @n
+ * @remarks		 You can keep @a message using bundle_dup(). @n
+ *				@a remote_port will be set only if the remote application sends a message with its port information using message_port_send_message_with_local_port(), otherwise it is @c NULL. @n
  *				When message is sent from remote application by message_port_send_message_with_local_port() in bidirectional communication, trusted_remote_port is used to check whether remote port is trusted port or not.
  *				This callback is called only in the main thread.
  *
@@ -85,7 +86,8 @@ typedef void (*message_port_message_cb)(int local_port_id, const char *remote_ap
  *
  * @since_tizen @if MOBILE 2.3 @elseif WEARABLE 2.3.1 @endif
  *
- * @remarks			@a remote_port will be set only if the remote application sends a message with its port information using message_port_send_trusted_message_with_local_port(), otherwise it is @c NULL. @n
+ * @remarks		 You can keep @a message using  bundle_dup(). @n
+ *				@a remote_port will be set only if the remote application sends a message with its port information using message_port_send_trusted_message_with_local_port(), otherwise it is @c NULL. @n
  *				When message is sent from remote application by message_port_send_trusted_message_with_local_port() in bidirectional communication, trusted_remote_port is used to check whether remote port is trusted port or not.
  *				This callback is called only in the main thread.
  * @param[in] trusted_local_port_id		The message port ID returned by message_port_register_trusted_local_port()

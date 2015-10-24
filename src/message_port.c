@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <map>
+#include <glib.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <pthread.h>
@@ -23,16 +23,14 @@
 #include "message_port_log.h"
 #include "message_port.h"
 
-struct message_port_callback_item_s {
+typedef struct message_port_callback_item_s {
 	message_port_message_cb callback;
 	void *user_data;
-};
-typedef std::map<int, message_port_callback_item_s> ListenerMap;
+} message_port_callback_item;
 
-static ListenerMap __listeners;
-static ListenerMap __trusted_listeners;
+static GHashTable *__listeners;
+static GHashTable *__trusted_listeners;
 static pthread_mutex_t __mutex = PTHREAD_MUTEX_INITIALIZER;
-
 
 static void do_callback(message_port_message_cb callback, int local_port_id, const char *remote_app_id, const char *remote_port, bool trusted_remote_port, bundle *message, void *user_data)
 {
@@ -49,14 +47,21 @@ static void do_callback(message_port_message_cb callback, int local_port_id, con
 
 static void message_dispatcher(int local_port_id, const char *remote_app_id, const char *remote_port, bool trusted_remote_port, bundle *message)
 {
-	_SECURE_LOGI("A message has been received to specific local port id (%d) from%s remote port (%s):(%s).", local_port_id, trusted_remote_port ? " trusted" : "", remote_app_id, remote_port);
-	do_callback(__listeners[local_port_id].callback, local_port_id, remote_app_id, remote_port, trusted_remote_port, message, __listeners[local_port_id].user_data);
+	_SECURE_LOGI("A message has been received to specific local port id (%d) from%s remote port (%s):(%s).",
+			local_port_id, trusted_remote_port ? " trusted" : "", remote_app_id, remote_port);
+
+	message_port_callback_item *item =
+		(message_port_callback_item *)g_hash_table_lookup(__listeners, GINT_TO_POINTER(local_port_id));
+	do_callback(item->callback, local_port_id, remote_app_id, remote_port, trusted_remote_port, message, item->user_data);
 }
 
 static void trusted_message_dispatcher(int trusted_local_port_id, const char *remote_app_id, const char *remote_port, bool trusted_remote_port, bundle *message)
 {
-	_SECURE_LOGI("A message has been received to specific trusted local port id (%d) from%s remote port (%s):(%s).", trusted_local_port_id, trusted_remote_port ? " trusted" : "", remote_app_id, remote_port);
-	do_callback(__trusted_listeners[trusted_local_port_id].callback, trusted_local_port_id, remote_app_id, remote_port, trusted_remote_port, message, __trusted_listeners[trusted_local_port_id].user_data);
+	_SECURE_LOGI("A message has been received to specific trusted local port id (%d) from%s remote port (%s):(%s).",
+			trusted_local_port_id, trusted_remote_port ? " trusted" : "", remote_app_id, remote_port);
+	message_port_callback_item *item =
+		(message_port_callback_item *)g_hash_table_lookup(__trusted_listeners, GINT_TO_POINTER(trusted_local_port_id));
+	do_callback(item->callback, trusted_local_port_id, remote_app_id, remote_port, trusted_remote_port, message, item->user_data);
 }
 
 int message_port_register_local_port(const char *local_port, message_port_message_cb callback, void *user_data)
@@ -71,10 +76,30 @@ int message_port_register_local_port(const char *local_port, message_port_messag
 	if (local_port_id > 0)
 	{
 		_SECURE_LOGI("Register local port ID (%d).", local_port_id);
+
+		if (__listeners == NULL) {
+			__listeners = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+		}
 		pthread_mutex_lock(&__mutex);
-		__listeners[local_port_id].callback = callback;
-		__listeners[local_port_id].user_data = user_data;
+		message_port_callback_item *item =
+			(message_port_callback_item *)g_hash_table_lookup(__listeners, GINT_TO_POINTER(local_port_id));
+		if (item == NULL) {
+			item = (message_port_callback_item *)calloc(1, sizeof(message_port_callback_item));
+			if (item == NULL) {
+				pthread_mutex_unlock(&__mutex);
+				return MESSAGE_PORT_ERROR_OUT_OF_MEMORY;
+			}
+			g_hash_table_insert(__listeners, GINT_TO_POINTER(local_port_id), item);
+		}
+
+
+		item->callback = callback;
+		item->user_data = user_data;
 		pthread_mutex_unlock(&__mutex);
+
+	} else {
+		_SECURE_LOGI("Register local port fail (%d).", local_port_id);
+
 	}
 	return convert_to_tizen_error((messageport_error_e)local_port_id);
 }
@@ -91,67 +116,62 @@ int message_port_register_trusted_local_port(const char *local_port, message_por
 	if (trusted_local_port_id > 0)
 	{
 		_SECURE_LOGI("Register trusted local port ID (%d).", trusted_local_port_id);
+
+		if (__trusted_listeners == NULL) {
+			__trusted_listeners = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+		}
 		pthread_mutex_lock(&__mutex);
-		__trusted_listeners[trusted_local_port_id].callback = callback;
-		__trusted_listeners[trusted_local_port_id].user_data = user_data;
+		message_port_callback_item *item =
+			(message_port_callback_item *)g_hash_table_lookup(__trusted_listeners, GINT_TO_POINTER(trusted_local_port_id));
+		if (item == NULL) {
+			item = (message_port_callback_item *)calloc(1, sizeof(message_port_callback_item));
+			if (item == NULL) {
+				pthread_mutex_unlock(&__mutex);
+				return MESSAGE_PORT_ERROR_OUT_OF_MEMORY;
+			}
+			g_hash_table_insert(__trusted_listeners, GINT_TO_POINTER(trusted_local_port_id), item);
+		}
+
+		item->callback = callback;
+		item->user_data = user_data;
 		pthread_mutex_unlock(&__mutex);
+	} else {
+		_SECURE_LOGI("Register trusted local port fail (%d).", trusted_local_port_id);
+
 	}
+
 	return convert_to_tizen_error((messageport_error_e)trusted_local_port_id);
 }
 
 int message_port_unregister_local_port(int local_port_id)
 {
+	int res = MESSAGE_PORT_ERROR_NONE;
 	if (local_port_id <= 0)
 	{
 		_LOGE("[MESSAGEPORT_ERROR_INVALID_PARAMETER] Neither 0 nor negative value is allowed.");
 		return MESSAGE_PORT_ERROR_INVALID_PARAMETER;
 	}
-	else if (__listeners[local_port_id].callback == NULL)
-	{
-		_LOGE("[MESSAGE_PORT_ERROR_PORT_NOT_FOUND] The local port ID (%d) is not registered.", local_port_id);
-		return MESSAGE_PORT_ERROR_PORT_NOT_FOUND;
-	}
-
-	_SECURE_LOGI("Unregister local port ID (%d).", local_port_id);
-	char *local_port_name = NULL;
-	int res = messageport_get_local_port_name(local_port_id, &local_port_name);
-	if (res == MESSAGE_PORT_ERROR_NONE && local_port_name != NULL)
-	{
-		pthread_mutex_lock(&__mutex);
-		messageport_register_local_port(local_port_name, NULL);
-		__listeners.erase(local_port_id);
-		pthread_mutex_unlock(&__mutex);
-
-		free(local_port_name);
+	else {
+		res = messageport_unregister_local_port(local_port_id, false);
+		g_hash_table_remove(__listeners, GINT_TO_POINTER(local_port_id));
 	}
 	return convert_to_tizen_error((messageport_error_e)res);
 }
 
 int message_port_unregister_trusted_local_port(int trusted_local_port_id)
 {
+
+	int res = MESSAGE_PORT_ERROR_NONE;
 	if (trusted_local_port_id <= 0)
 	{
 		_LOGE("[MESSAGEPORT_ERROR_INVALID_PARAMETER] Neither 0 nor negative value is allowed.");
 		return MESSAGE_PORT_ERROR_INVALID_PARAMETER;
 	}
-	else if (__trusted_listeners[trusted_local_port_id].callback == NULL)
-	{
-		_LOGE("[MESSAGE_PORT_ERROR_PORT_NOT_FOUND] The trusted local port ID (%d) is not registered.", trusted_local_port_id);
-		return MESSAGE_PORT_ERROR_PORT_NOT_FOUND;
+	else {
+		res = messageport_unregister_local_port(trusted_local_port_id, true);
+		g_hash_table_remove(__trusted_listeners, GINT_TO_POINTER(trusted_local_port_id));
 	}
 
-	_SECURE_LOGI("Unregister local port ID (%d).", trusted_local_port_id);
-	char *local_port_name = NULL;
-	int res = messageport_get_local_port_name(trusted_local_port_id, &local_port_name);
-	if (res == MESSAGE_PORT_ERROR_NONE && local_port_name != NULL)
-	{
-		pthread_mutex_lock(&__mutex);
-		messageport_register_trusted_local_port(local_port_name, NULL);
-		__trusted_listeners.erase(trusted_local_port_id);
-		pthread_mutex_unlock(&__mutex);
-
-		free(local_port_name);
-	}
 	return convert_to_tizen_error((messageport_error_e)res);
 }
 
@@ -211,10 +231,24 @@ int message_port_send_message_with_local_port(const char *remote_app_id, const c
 		_LOGE("[MESSAGEPORT_ERROR_INVALID_PARAMETER] Neither 0 nor negative value is allowed.");
 		return MESSAGE_PORT_ERROR_INVALID_PARAMETER;
 	}
-	else if (__listeners[local_port_id].callback == NULL && __trusted_listeners[local_port_id].callback == NULL)
-	{
-		_LOGE("[MESSAGE_PORT_ERROR_PORT_NOT_FOUND] The local port ID (%d) is not registered.", local_port_id);
-		return MESSAGE_PORT_ERROR_PORT_NOT_FOUND;
+	else {
+
+		message_port_callback_item *item = NULL;
+		message_port_callback_item *trusted_item = NULL;
+
+		if (__listeners != NULL) {
+			item = (message_port_callback_item *)g_hash_table_lookup(__listeners, GINT_TO_POINTER(local_port_id));
+		}
+		if (item == NULL && __trusted_listeners != NULL) {
+			trusted_item = (message_port_callback_item *)g_hash_table_lookup(__trusted_listeners, GINT_TO_POINTER(local_port_id));
+
+		}
+
+		if (item == NULL && trusted_item == NULL)
+		{
+			_LOGE("[MESSAGE_PORT_ERROR_PORT_NOT_FOUND] The local port ID (%d) is not registered.", local_port_id);
+			return MESSAGE_PORT_ERROR_PORT_NOT_FOUND;
+		}
 	}
 
 	_SECURE_LOGI("Send a message to (%s):(%s) and listen at the local port ID (%d).", remote_app_id, remote_port, local_port_id);
@@ -233,10 +267,23 @@ int message_port_send_trusted_message_with_local_port(const char* remote_app_id,
 		_LOGE("[MESSAGEPORT_ERROR_INVALID_PARAMETER] Neither 0 nor negative value is allowed.");
 		return MESSAGE_PORT_ERROR_INVALID_PARAMETER;
 	}
-	else if (__listeners[local_port_id].callback == NULL && __trusted_listeners[local_port_id].callback == NULL)
-	{
-		_LOGE("[MESSAGE_PORT_ERROR_PORT_NOT_FOUND] The local port ID (%d) is not registered.", local_port_id);
-		return MESSAGE_PORT_ERROR_PORT_NOT_FOUND;
+	else {
+		message_port_callback_item *item = NULL;
+		message_port_callback_item *trusted_item = NULL;
+
+		if (__listeners != NULL) {
+			item = (message_port_callback_item *)g_hash_table_lookup(__listeners, GINT_TO_POINTER(local_port_id));
+		}
+		if (item == NULL && __trusted_listeners != NULL) {
+			trusted_item = (message_port_callback_item *)g_hash_table_lookup(__trusted_listeners, GINT_TO_POINTER(local_port_id));
+
+		}
+
+		if (item == NULL && trusted_item == NULL)
+		{
+			_LOGE("[MESSAGE_PORT_ERROR_PORT_NOT_FOUND] The local port ID (%d) is not registered.", local_port_id);
+			return MESSAGE_PORT_ERROR_PORT_NOT_FOUND;
+		}
 	}
 
 	_SECURE_LOGI("Send a trusted message to (%s):(%s) and listen at the local port ID (%d).", remote_app_id, remote_port, local_port_id);
