@@ -1,7 +1,7 @@
 Name:		capi-message-port
 Summary:	Message Port managed library
 Version: 	1.2.2.1
-Release:    2
+Release:    3
 Group:		Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
